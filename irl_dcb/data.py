@@ -49,7 +49,7 @@ class LHF_IRL(Dataset):
     """
 
     def __init__(self, DCB_HR_dir, DCB_LR_dir, initial_fix, img_info, annos,
-                 pa, catIds):
+                 pa, catIds, dset='coco18'):
         self.img_info = img_info
         self.annos = annos
         self.pa = pa
@@ -62,7 +62,7 @@ class LHF_IRL(Dataset):
         return len(self.img_info)
 
     def __getitem__(self, idx):
-        cat_name, img_name = self.img_info[idx].split('_')
+        cat_name, img_name = self.img_info[idx].split('_', 1)
         feat_name = img_name[:-3] + 'pth.tar'
         lr_path = join(self.LR_dir, cat_name.replace(' ', '_'), feat_name)
         hr_path = join(self.HR_dir, cat_name.replace(' ', '_'), feat_name)

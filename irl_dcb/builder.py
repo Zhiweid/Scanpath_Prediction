@@ -17,11 +17,11 @@ def build(hparams, is_training, device, catIds, load_path=None):
                                       input_size).to(device)
 
     if load_path:
-        load('best', generator, 'generator', pkg_dir=load_path)
+        load('best', generator, 'generator', pkg_dir=load_path, device=device)
         global_step = load('best',
                            discriminator,
                            'discriminator',
-                           pkg_dir=load_path)
+                           pkg_dir=load_path, device=device)
     else:
         global_step = 0
 

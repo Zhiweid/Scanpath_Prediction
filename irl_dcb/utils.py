@@ -9,7 +9,7 @@ from shutil import copyfile
 warnings.filterwarnings("ignore", category=UserWarning)
 
 
-def cutFixOnTarget(trajs, target_annos):
+def cutFixOnTarget(trajs, target_annos, method='rigorous', IOR_px=None):
     task_names = np.unique([traj['task'] for traj in trajs])
     if 'condition' in trajs[0].keys():
         trajs = list(filter(lambda x: x['condition'] == 'present', trajs))
@@ -19,7 +19,7 @@ def cutFixOnTarget(trajs, target_annos):
         for i, traj in enumerate(task_trajs):
             key = traj['task'] + '_' + traj['name']
             bbox = target_annos[key]
-            traj_len = get_num_step2target(traj['X'], traj['Y'], bbox)
+            traj_len = get_num_step2target(traj['X'], traj['Y'], bbox, method=method, IOR_px=IOR_px)
             num_steps_task[i] = traj_len
             traj['X'] = traj['X'][:traj_len]
             traj['Y'] = traj['Y'][:traj_len]
@@ -225,11 +225,16 @@ def process_trajs(trajs, gamma, mtd='CRITIC', tau=0.96):
     return avg_return / len(trajs)
 
 
-def get_num_step2target(X, Y, bbox):
+def get_num_step2target(X, Y, bbox, method='rigorous', IOR_px=None):
     X, Y = np.array(X), np.array(Y)
-    on_target_X = np.logical_and(X > bbox[0], X < bbox[0] + bbox[2])
-    on_target_Y = np.logical_and(Y > bbox[1], Y < bbox[1] + bbox[3])
+    if method == 'rigorous':      
+        on_target_X = np.logical_and(X > bbox[0], X < bbox[0] + bbox[2])
+        on_target_Y = np.logical_and(Y > bbox[1], Y < bbox[1] + bbox[3])
+    elif method == 'relaxed' and IOR_px is not None:
+        on_target_X = ~np.logical_or(X + IOR_px + 1 < bbox[0], X - IOR_px > bbox[0] + bbox[2])
+        on_target_Y = ~np.logical_or(Y + IOR_px + 1 < bbox[1], Y - IOR_px > bbox[1] + bbox[3])
     on_target = np.logical_and(on_target_X, on_target_Y)
+    
     if np.sum(on_target) > 0:
         first_on_target_idx = np.argmax(on_target)
         return first_on_target_idx + 1
@@ -245,7 +250,7 @@ def get_CDF(num_steps, max_step):
     return cdf
 
 
-def get_num_steps(trajs, target_annos, task_names):
+def get_num_steps(trajs, target_annos, task_names, method='rigorous', IOR_px=None):
     num_steps = {}
     for task in task_names:
         task_trajs = list(filter(lambda x: x['task'] == task, trajs))
@@ -253,7 +258,7 @@ def get_num_steps(trajs, target_annos, task_names):
         for i, traj in enumerate(task_trajs):
             key = traj['task'] + '_' + traj['name']
             bbox = target_annos[key]
-            step_num = get_num_step2target(traj['X'], traj['Y'], bbox)
+            step_num = get_num_step2target(traj['X'], traj['Y'], bbox, method=method, IOR_px=IOR_px)
             num_steps_task[i] = step_num
             traj['X'] = traj['X'][:step_num]
             traj['Y'] = traj['Y'][:step_num]
@@ -268,10 +273,10 @@ def get_mean_cdf(num_steps, task_names, max_step):
     return cdf_tasks
 
 
-def compute_search_cdf(scanpaths, annos, max_step, return_by_task=False):
+def compute_search_cdf(scanpaths, annos, max_step, return_by_task=False, method='rigorous', IOR_px=None):
     # compute search CDF
     task_names = np.unique([traj['task'] for traj in scanpaths])
-    num_steps = get_num_steps(scanpaths, annos, task_names)
+    num_steps = get_num_steps(scanpaths, annos, task_names, method=method, IOR_px=IOR_px)
     cdf_tasks = get_mean_cdf(num_steps, task_names, max_step + 1)
     if return_by_task:
         return dict(zip(task_names, cdf_tasks))
@@ -355,6 +360,22 @@ def actions2scanpaths(actions, patch_num, im_w, im_h):
         })
     return scanpaths
 
+def actions2scanpaths_action_scale(actions, patch_num):
+    # convert actions to scanpaths
+    scanpaths = []
+    for traj in actions:
+        task_name, img_name, condition, actions = traj
+        actions = actions.to(dtype=torch.float32)
+        y = actions // patch_num[0]
+        x = actions % patch_num[0]
+        scanpaths.append({
+            'X': np.concatenate([np.array([0.5*patch_num[0]]), x.cpu().numpy()]),
+            'Y': np.concatenate([np.array([0.5*patch_num[1]]), y.cpu().numpy()]),
+            'name': img_name,
+            'task': task_name,
+            'condition': condition
+        })
+    return scanpaths
 
 def preprocess_fixations(trajs,
                          patch_size,

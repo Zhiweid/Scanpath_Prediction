@@ -81,28 +81,62 @@ class LHF_Policy_Cond_Small(nn.Module):
 
     def forward(self, x, tid, act_only=False):
         """ output the action probability"""
-        bs, _, h, w = x.size()
-        tid_onehot = self.get_one_hot(tid)
-        tid_onehot = tid_onehot.view(bs, tid_onehot.size(1), 1, 1)
+        if (tid <= 17).any().item(): 
+            bs, _, h, w = x.size()
+            tid_onehot = self.get_one_hot(tid)
+            tid_onehot = tid_onehot.view(bs, tid_onehot.size(1), 1, 1)
 
-        x = self.modulate_features(x, tid_onehot)
-        x = torch.relu(self.feat_enc(x))
-        x = self.modulate_features(x, tid_onehot)
-        act_logits = torch.relu(self.actor1(x))
-        act_logits = self.modulate_features(act_logits, tid_onehot)
-        act_logits = torch.relu(self.actor2(act_logits))
-        act_logits = self.modulate_features(act_logits, tid_onehot)
-        act_logits = self.actor3(act_logits).view(bs, -1)
-        
-        act_probs = F.softmax(act_logits, dim=-1)
-        if act_only:
-            return act_probs, None
+            x = self.modulate_features(x, tid_onehot)
+            x = torch.relu(self.feat_enc(x))
+            x = self.modulate_features(x, tid_onehot)
+            act_logits = torch.relu(self.actor1(x))
+            act_logits = self.modulate_features(act_logits, tid_onehot)
+            act_logits = torch.relu(self.actor2(act_logits))
+            act_logits = self.modulate_features(act_logits, tid_onehot)
+            act_logits = self.actor3(act_logits).view(bs, -1)
 
-        x = self.max_pool(torch.relu(self.critic0(x)))
-        x = self.modulate_features(x, tid_onehot)
-        x = self.max_pool(torch.relu(self.critic1(x)))
-        x = x.view(bs, x.size(1), -1).mean(dim=-1)
-        x = torch.cat([x, tid_onehot.squeeze()], dim=1)
-        x = torch.relu(self.critic2(x))
-        state_values = self.critic3(x)
+            act_probs = F.softmax(act_logits, dim=-1)
+            if act_only:
+                return act_probs, None
+
+            x = self.max_pool(torch.relu(self.critic0(x)))
+            x = self.modulate_features(x, tid_onehot)
+            x = self.max_pool(torch.relu(self.critic1(x)))
+            x = x.view(bs, x.size(1), -1).mean(dim=-1)
+            x = torch.cat([x, tid_onehot.squeeze()], dim=1)
+            x = torch.relu(self.critic2(x))
+            state_values = self.critic3(x)
+            
+        else:
+            act_probs, state_values = [], []
+            x_origin = x.clone()
+            for i in range(18):
+                tid = torch.ones_like(tid) * i
+                bs, _, h, w = x_origin.size()
+                tid_onehot = self.get_one_hot(tid)
+                tid_onehot = tid_onehot.view(bs, tid_onehot.size(1), 1, 1)
+
+                x = self.modulate_features(x_origin, tid_onehot)
+                x = torch.relu(self.feat_enc(x))
+                x = self.modulate_features(x, tid_onehot)
+                act_logits = torch.relu(self.actor1(x))
+                act_logits = self.modulate_features(act_logits, tid_onehot)
+                act_logits = torch.relu(self.actor2(act_logits))
+                act_logits = self.modulate_features(act_logits, tid_onehot)
+                act_logits = self.actor3(act_logits).view(bs, -1)
+
+                act_probs.append(F.softmax(act_logits, dim=-1))
+                if act_only:
+                    state_values = None
+                else:
+                    x = self.max_pool(torch.relu(self.critic0(x)))
+                    x = self.modulate_features(x, tid_onehot)
+                    x = self.max_pool(torch.relu(self.critic1(x)))
+                    x = x.view(bs, x.size(1), -1).mean(dim=-1)
+                    x = torch.cat([x, tid_onehot.squeeze()], dim=1)
+                    x = torch.relu(self.critic2(x))
+                    state_values.append(self.critic3(x))
+            act_probs = torch.stack(act_probs).mean(0)
+            state_values = torch.stack(state_values).mean(0)
+
         return act_probs, state_values
